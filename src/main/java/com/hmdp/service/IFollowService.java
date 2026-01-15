@@ -17,4 +17,6 @@ public interface IFollowService extends IService<Follow> {
     Result follow(Long followedUserId, Boolean isFollow);
 
     Result isFollow(Long followedUserId);
+
+    Result followCommons(Long id);
 }
