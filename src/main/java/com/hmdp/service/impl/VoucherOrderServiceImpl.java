@@ -26,8 +26,6 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -120,7 +118,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     //2.pending list中没有异常数据，结束循环
                     if (list == null || list.isEmpty()) {
                         //结束循环
-                        break;
+                        return;
                     }
                     //3.解析消息中的数据
                     MapRecord<String, Object, Object> record = list.get(0);
@@ -247,7 +245,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Override
     public void createSeckillOrder(VoucherOrder voucherOrder) {
         //判断是否是重复秒杀
-        Long userId = UserHolder.getUser().getId();
+        Long userId = voucherOrder.getUserId();
         System.out.println("用户id：" + userId);
         int count = this.query().eq("user_id", userId).eq("voucher_id", voucherOrder.getVoucherId()).count();
         //订单重复
