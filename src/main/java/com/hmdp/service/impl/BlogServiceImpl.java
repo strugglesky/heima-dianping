@@ -7,10 +7,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
+import com.hmdp.entity.Follow;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.BlogMapper;
 import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.SystemConstants;
@@ -19,6 +21,7 @@ import com.sun.org.apache.xpath.internal.operations.Bool;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.validation.beanvalidation.SpringValidatorAdapter;
 
 import java.util.Collections;
 import java.util.List;
@@ -38,6 +41,8 @@ import static com.hmdp.utils.RedisConstants.BLOG_LIKED_KEY;
  */
 @Service
 public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
+    @Autowired
+    private IFollowService followService;
     @Autowired
     private IUserService userService;
     @Autowired
@@ -119,6 +124,30 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
                 .stream().map(user -> BeanUtil.copyProperties(user, UserDTO.class))
                 .collect(Collectors.toList());
         return Result.ok(userDTOS);
+    }
+
+    @Override
+    public Result saveBlog(Blog blog) {
+        //1.获取当前用户
+        Long userId = UserHolder.getUser().getId();
+        blog.setUserId(userId);
+        //2.保存探店笔记
+        boolean isSuccess = save(blog);
+        if (!isSuccess){
+            return Result.fail("发布笔记失败！");
+        }
+        //3.查询笔记作者的所有粉丝id
+        List<Follow> follows = followService.lambdaQuery().eq(Follow::getFollowUserId, userId).list();
+        if (follows == null || follows.isEmpty()){
+            return Result.ok("无粉丝关注");
+        }
+        List<Long> ids = follows.stream().map(Follow::getUserId).collect(Collectors.toList());
+        //4.推送笔记id给所有粉丝
+        for(Long id : ids){
+            String key = "feed:" + id;
+            stringRedisTemplate.opsForZSet().add(key, blog.getId().toString(), System.currentTimeMillis());
+        }
+        return Result.ok(blog.getId());
     }
 
     public void queryBlogIsLiked(Blog blog) {
