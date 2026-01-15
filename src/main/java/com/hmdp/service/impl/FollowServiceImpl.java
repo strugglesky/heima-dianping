@@ -1,9 +1,15 @@
 package com.hmdp.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import com.baomidou.mybatisplus.extension.conditions.query.QueryChainWrapper;
+import com.hmdp.dto.Result;
 import com.hmdp.entity.Follow;
 import com.hmdp.mapper.FollowMapper;
 import com.hmdp.service.IFollowService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.UserHolder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -16,5 +22,35 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> implements IFollowService {
+    /*
+    * 关注别人
+    * */
+    @Override
+    public Result follow(Long followedUserId, Boolean isFollow) {
+        //1.查询当前用户
+        Long userId = UserHolder.getUser().getId();
+        if(isFollow){
+            //已经关注 进行取关
+            remove(new LambdaQueryWrapper<Follow>().eq(Follow::getUserId, userId).eq(Follow::getFollowUserId, followedUserId));
+        }
+        //未关注 进行关注
+        Follow follow = new Follow();
+        follow.setUserId(userId);
+        follow.setFollowUserId(followedUserId);
+        save( follow);
+        return Result.ok();
+    }
 
+    /*
+    * 查询是否关注他人
+    * */
+
+    @Override
+    public Result isFollow(Long followedUserId) {
+        //1.查询当前用户
+        Long userId = UserHolder.getUser().getId();
+        //2.查询是否存在关注数据
+        Integer count = lambdaQuery().eq(Follow::getUserId, userId).eq(Follow::getFollowUserId, followedUserId).count();
+        return Result.ok(count > 0);
+    }
 }
