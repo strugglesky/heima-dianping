@@ -1,14 +1,18 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.BooleanUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.BlogMapper;
 import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.service.IUserService;
+import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import com.sun.org.apache.xpath.internal.operations.Bool;
@@ -16,8 +20,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+
+import static com.hmdp.utils.RedisConstants.BLOG_LIKED_KEY;
 
 /**
  * <p>
@@ -69,14 +78,14 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         //获取登录用户
         Long userId = UserHolder.getUser().getId();
         //判断是否已经点赞
-        String key = "blog:liked:" + id;
-        Boolean isLiked = stringRedisTemplate.opsForSet().isMember(key, userId.toString());
-        if (BooleanUtil.isFalse(isLiked)){
+        String key = BLOG_LIKED_KEY  + id;
+        Double score = stringRedisTemplate.opsForZSet().score(key, userId.toString());
+        if (score == null){
             //更新数据库点赞数
             boolean isSuccess = update().setSql("liked = liked + 1").eq("id", id).update();
             if (isSuccess){
                 //保存用户id到redis
-                stringRedisTemplate.opsForSet().add(key, userId.toString());
+                stringRedisTemplate.opsForZSet().add(key, userId.toString(), System.currentTimeMillis());
             }
         }else {
             //用户已经点赞
@@ -84,19 +93,45 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
             boolean isSuccess = update().setSql("liked = liked - 1").eq("id", id).update();
             if (isSuccess){
                 //保存用户id从redis移除
-                stringRedisTemplate.opsForSet().remove(key, userId.toString());
+                stringRedisTemplate.opsForZSet().remove(key, userId.toString());
             }
         }
         return Result.ok();
     }
+    /*
+    * 查询top5点赞的用户
+    * */
+    @Override
+    public Result queryBlogLikes(Long id) {
+        Long userId = UserHolder.getUser().getId();
+        String key = BLOG_LIKED_KEY + id;
+        //查询前5个点赞用户
+        Set<String> top5 = stringRedisTemplate.opsForZSet().range(key, 0, 4);
+        if (top5 == null || top5.isEmpty()){
+            return Result.ok(Collections.emptyList());
+        }
+        List<Long> ids = top5.stream().map(Long::parseLong).collect(Collectors.toList());
+        String joinStr = StrUtil.join(",", ids);
+        //解析出用户id
+        List<Object> userDTOS = userService.query()
+                .in("id", ids)
+                .last("order by field (id," + joinStr + ")").list()
+                .stream().map(user -> BeanUtil.copyProperties(user, UserDTO.class))
+                .collect(Collectors.toList());
+        return Result.ok(userDTOS);
+    }
 
     public void queryBlogIsLiked(Blog blog) {
         //获取登录用户
-        Long userId = UserHolder.getUser().getId();
+        UserDTO user = UserHolder.getUser();
+        if (user == null){
+            return;
+        }
+        Long userId = user.getId();
         //判断是否已经点赞
-        String key = "blog:liked:" + blog.getId();
-        Boolean isLiked = stringRedisTemplate.opsForSet().isMember(key, userId.toString());
-        blog.setIsLike(isLiked);
+        String key = BLOG_LIKED_KEY + blog.getId();
+        Double score = stringRedisTemplate.opsForZSet().score(key, userId.toString());
+        blog.setIsLike(score != null);
     }
 
     public void queryBlogUser(Blog blog) {
